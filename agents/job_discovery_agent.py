@@ -77,11 +77,13 @@ def _save_seen_ids(seen: set):
     path = config.paths.seen_jobs_log
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     # Keep a rolling 30-day window (approx 4 runs/day * 30 = 120 run entries)
-    with open(path) as f if os.path.exists(path) else open(os.devnull) as f:
-        try:
-            existing = json.load(f)
-        except Exception:
-            existing = {}
+    existing = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            try:
+                existing = json.load(f)
+            except Exception:
+                existing = {}
     ids_list = list(seen)
     with open(path, "w") as f:
         json.dump({"seen_ids": ids_list, "updated_at": datetime.now(timezone.utc).isoformat()}, f, indent=2)
