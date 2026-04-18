@@ -25,7 +25,7 @@ from agents.relevance_agent import score_and_filter_jobs
 from agents.resume_tailor_agent import tailor_resume
 from agents.hiring_manager_agent import enrich_job_with_contact
 from agents.email_reporter_agent import send_report
-from utils.dedup import load_seen_ids, mark_jobs_seen
+from utils.dedup import load_seen_ids, mark_jobs_seen, clear_history
 from utils.logger import get_logger
 
 logger = get_logger("orchestrator")
@@ -192,6 +192,12 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Run pipeline without sending email")
     parser.add_argument("--refresh-resume", action="store_true", help="Force re-parse resume PDF")
     parser.add_argument(
+        "--clear-history",
+        action="store_true",
+        help="Wipe the seen-jobs log so all jobs appear as new on the next run. "
+             "Use this to reset deduplication (e.g. after testing, or to resend a report).",
+    )
+    parser.add_argument(
         "--since-hours",
         type=int,
         default=0,
@@ -210,6 +216,10 @@ if __name__ == "__main__":
         from agents.resume_agent import load_resume_profile
         load_resume_profile(force_refresh=True)
         logger.info("Resume profile refreshed.")
+        sys.exit(0)
+
+    if args.clear_history:
+        clear_history()
         sys.exit(0)
 
     if args.scheduler:

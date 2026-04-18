@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Email Reporter Agent
 ====================
@@ -282,7 +283,7 @@ def send_report(jobs: List[JobPosting], pdf_paths: List[str], run_label: str = "
         f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
     )
     Path(report_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write(html)
     logger.info(f"HTML report saved: {report_path}")
 

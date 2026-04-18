@@ -50,3 +50,17 @@ def mark_jobs_seen(job_ids: List[str]):
     with open(path, "w") as f:
         json.dump({"entries": fresh, "updated_at": now}, f, indent=2)
     logger.info(f"Marked {len(job_ids)} job IDs as seen. Total tracked: {len(fresh)}")
+
+
+def clear_history():
+    """
+    Wipe the seen-jobs log so all jobs are treated as new on the next run.
+    Preserves the file with an empty entries list (avoids FileNotFoundError
+    on the next load_seen_ids() call).
+    """
+    path = config.paths.seen_jobs_log
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    now = datetime.now(timezone.utc).isoformat()
+    with open(path, "w") as f:
+        json.dump({"entries": [], "updated_at": now, "cleared_at": now}, f, indent=2)
+    logger.info("Seen-jobs history cleared. All jobs will be treated as new on the next run.")
