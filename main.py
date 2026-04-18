@@ -35,7 +35,7 @@ logger = get_logger("orchestrator")
 # Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 
-def run_pipeline(dry_run: bool = False) -> dict:
+def run_pipeline(dry_run: bool = False, since_hours: int = 0) -> dict:
     """Execute the full job search pipeline. Returns a summary dict."""
     start = time.time()
     run_time = datetime.now(timezone.utc)
@@ -62,7 +62,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
         # ── Step 2: Job Discovery ─────────────────────────────────────────────
         logger.info("[2/6] Discovering new jobs...")
         seen_ids = load_seen_ids()
-        all_jobs = discover_jobs()
+        all_jobs = discover_jobs(since_hours=since_hours)
         # Filter out seen
         new_jobs = [j for j in all_jobs if j.id not in seen_ids]
         summary["total_discovered"] = len(new_jobs)
@@ -191,6 +191,15 @@ if __name__ == "__main__":
     parser.add_argument("--scheduler", action="store_true", help="Run on 6AM/6PM ET schedule")
     parser.add_argument("--dry-run", action="store_true", help="Run pipeline without sending email")
     parser.add_argument("--refresh-resume", action="store_true", help="Force re-parse resume PDF")
+    parser.add_argument(
+        "--since-hours",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Override recency window: only fetch jobs posted in the last N hours. "
+             "Default 0 = use config value (12h). Use a larger value (e.g. 72 or 168) "
+             "for a first run or backfill. Example: --since-hours 72",
+    )
     args = parser.parse_args()
 
     # Ensure required directories exist
@@ -206,5 +215,5 @@ if __name__ == "__main__":
     if args.scheduler:
         run_scheduler()
     else:
-        summary = run_pipeline(dry_run=args.dry_run)
+        summary = run_pipeline(dry_run=args.dry_run, since_hours=args.since_hours)
         sys.exit(0 if not summary.get("error") else 1)

@@ -93,8 +93,12 @@ def _save_seen_ids(seen: set):
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Runtime override — set via discover_jobs(since_hours=N) or --since-hours CLI flag
+_RUNTIME_HOURS_OVERRIDE: int = 0
+
 def _is_recent(posted_at: datetime) -> bool:
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=config.search.max_hours_old)
+    hours = _RUNTIME_HOURS_OVERRIDE or config.search.max_hours_old
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     if posted_at.tzinfo is None:
         posted_at = posted_at.replace(tzinfo=timezone.utc)
     return posted_at >= cutoff
@@ -131,12 +135,11 @@ def _fetch_adzuna(query: str, location: str = "us") -> List[JobPosting]:
             "results_per_page": 50,
             "page": page,
             "what": query,
-            "content-type": "application/json",
             "sort_by": "date",
         }
         url = f"https://api.adzuna.com/v1/api/jobs/us/search/{page}?" + urlencode(params)
         try:
-            resp = requests.get(url, timeout=15)
+            resp = requests.get(url, timeout=15, headers={"Accept": "application/json"})
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results", [])
@@ -341,13 +344,20 @@ def _fetch_lever_all() -> List[JobPosting]:
 # Master orchestrator
 # ──────────────────────────────────────────────────────────────────────────────
 
-def discover_jobs() -> List[JobPosting]:
+def discover_jobs(since_hours: int = 0) -> List[JobPosting]:
     """
     Run all sources in parallel, de-duplicate, filter seen jobs, return fresh list.
-    """
-    seen_ids = _load_seen_ids()
 
-    logger.info("Starting parallel job discovery across all sources...")
+    Args:
+        since_hours: Override the recency window (hours). 0 = use config default (12h).
+                     Pass a larger value (e.g. 72 or 168) for a first run or backfill.
+    """
+    global _RUNTIME_HOURS_OVERRIDE
+    _RUNTIME_HOURS_OVERRIDE = since_hours
+
+    seen_ids = _load_seen_ids()
+    hours_label = since_hours or config.search.max_hours_old
+    logger.info(f"Starting parallel job discovery (recency window: {hours_label}h)...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futures = [
             ex.submit(_fetch_adzuna, "machine learning engineer AI"),
