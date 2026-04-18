@@ -128,18 +128,23 @@ def _fetch_adzuna(query: str, location: str = "us") -> List[JobPosting]:
         return []
 
     jobs = []
-    for page in range(1, 4):   # up to 3 pages × 50 results = 150
+    for page in range(1, 4):   # up to 3 pages x 50 results = 150
+        # Adzuna quirks (per official docs):
+        #   - Page number belongs in the URL PATH (/search/1), NOT as a query param
+        #   - "content-type=application/json" IS a query param (Adzuna's own design)
+        #   - Use max_days_old for recency; avoid combining it with sort_by=date
         params = {
             "app_id": app_id,
             "app_key": app_key,
             "results_per_page": 50,
-            "page": page,
             "what": query,
+            "content-type": "application/json",
             "sort_by": "date",
+            "max_days_old": 1,          # last 24 h; _is_recent() filters further
         }
         url = f"https://api.adzuna.com/v1/api/jobs/us/search/{page}?" + urlencode(params)
         try:
-            resp = requests.get(url, timeout=15, headers={"Accept": "application/json"})
+            resp = requests.get(url, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results", [])
