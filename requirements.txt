@@ -1,0 +1,30 @@
+# Core
+openai>=1.40.0
+anthropic>=0.30.0
+
+# Resume parsing
+pdfplumber>=0.10.0
+
+# PDF generation
+reportlab>=4.0.0
+
+# Job discovery
+requests>=2.31.0
+feedparser>=6.0.0
+python-dateutil>=2.8.0
+
+# Scheduler
+APScheduler>=3.10.0
+pytz>=2024.1
+
+# Retry logic
+tenacity>=8.2.0
+
+# Email (SendGrid optional)
+sendgrid>=6.11.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Data utilities
+dataclasses-json>=0.6.0
