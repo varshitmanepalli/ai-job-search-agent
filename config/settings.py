@@ -14,7 +14,7 @@ load_dotenv()
 @dataclass
 class LLMConfig:
     provider: str = "openai"                          # "openai" | "anthropic" | "gemini"
-    model: str = "gpt-4o"
+    model: str = "gpt-4o-mini"
     temperature: float = 0.2
     max_tokens: int = 4096
     api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
