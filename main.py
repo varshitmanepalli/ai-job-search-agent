@@ -84,21 +84,33 @@ def run_pipeline(dry_run: bool = False, since_hours: int = 0) -> dict:
             summary["duration_seconds"] = round(time.time() - start, 1)
             return summary
 
-        # ── Step 4: Parallel — Tailor Resumes + Enrich Contact Info ──────────
-        logger.info("[4/6] Tailoring resumes and enriching contact info (parallel)...")
+        # ── Step 4: Tailor Resumes + Enrich Contact Info ─────────────────────
+        #
+        # Strategy:
+        #   - LLM tailoring (.tex rewrite) and contact enrichment run in
+        #     parallel across all jobs — both are I/O-bound and independent.
+        #   - LaTeX compilation is serialized (one at a time) via a semaphore
+        #     because TeXLive.net is a free public service that returns
+        #     "Bad form type: no main document" when hit with concurrent
+        #     requests from the same client.
+        #
+        logger.info("[4/6] Tailoring resumes and enriching contact info...")
         pdf_paths = []
+        import threading
+        _compile_lock = threading.Semaphore(1)  # one compile at a time
 
         def process_job(job: JobPosting):
-            # Run both in parallel within each job
+            # Phase A (parallel): LLM tex rewrite + contact enrichment
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as inner:
-                resume_future = inner.submit(tailor_resume, profile, job)
+                resume_future = inner.submit(tailor_resume, profile, job,
+                                             compile_lock=_compile_lock)
                 contact_future = inner.submit(enrich_job_with_contact, profile, job)
                 pdf = resume_future.result()
                 enriched_job = contact_future.result()
             return enriched_job, pdf
 
         enriched_jobs = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
             futures = {ex.submit(process_job, job): job for job in scored_jobs}
             for fut in concurrent.futures.as_completed(futures):
                 try:

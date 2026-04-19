@@ -267,11 +267,13 @@ def _render_resume_pdf(data: dict, output_path: str):
 # LaTeX pipeline (preferred when input/resume.tex exists)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str) -> str:
+def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
+                      compile_lock=None) -> str:
     """
     Tailor the resume using the LaTeX source file:
-      1. Surgically edit content-only nodes in the .tex file via LLM.
-      2. Compile the modified .tex to PDF via latexonline.cc.
+      1. LLM surgically edits content-only nodes in the .tex (parallel-safe).
+      2. Compile the modified .tex to PDF via TeXLive.net (serialized via
+         compile_lock semaphore — TeXLive.net rejects concurrent requests).
     Preserves exact template formatting, fonts, and layout from Overleaf.
     """
     from utils.latex_tailor import tailor_tex_for_job
@@ -283,7 +285,7 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str)
     with open(tex_path, "r", encoding="utf-8") as f:
         original_tex = f.read()
 
-    # Detect if there's an aux directory (sibling files like .cls, .sty, images)
+    # Detect aux files (.cls, .sty, images) in the same directory
     tex_dir = os.path.dirname(os.path.abspath(tex_path))
     aux_files = [
         p for p in Path(tex_dir).iterdir()
@@ -291,7 +293,7 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str)
     ]
     aux_dir = tex_dir if aux_files else None
 
-    # Step 1: LLM surgically edits content nodes
+    # Step 1 (parallel-safe): LLM rewrites content nodes in .tex
     modified_tex = tailor_tex_for_job(
         tex_source=original_tex,
         job_title=job.title,
@@ -299,20 +301,28 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str)
         job_description=job.description,
     )
 
-    # Step 2: Compile modified .tex → PDF
-    main_filename = os.path.basename(tex_path)
-    compile_tex_to_pdf(
-        tex_source=modified_tex,
-        output_path=output_path,
-        aux_dir=aux_dir,
-        main_filename=main_filename,
-        compiler=compiler,
-    )
-
-    # Also save the modified .tex alongside the PDF (useful for debugging)
+    # Save the modified .tex for debugging regardless of compile outcome
     tex_out = output_path.replace(".pdf", ".tex")
     with open(tex_out, "w", encoding="utf-8") as f:
         f.write(modified_tex)
+
+    # Step 2 (serialized): compile — acquire lock so only one compile hits
+    # TeXLive.net at a time; all others wait their turn.
+    main_filename = os.path.basename(tex_path)
+    if compile_lock is not None:
+        logger.debug(f"Waiting for compile slot: {job.company}")
+        compile_lock.acquire()
+    try:
+        compile_tex_to_pdf(
+            tex_source=modified_tex,
+            output_path=output_path,
+            aux_dir=aux_dir,
+            main_filename=main_filename,
+            compiler=compiler,
+        )
+    finally:
+        if compile_lock is not None:
+            compile_lock.release()
 
     return output_path
 
@@ -321,7 +331,7 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str)
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
-def tailor_resume(profile: ResumeProfile, job: JobPosting) -> Optional[str]:
+def tailor_resume(profile: ResumeProfile, job: JobPosting, compile_lock=None) -> Optional[str]:
     """
     Generate a tailored PDF resume for the given job.
 
@@ -348,7 +358,7 @@ def tailor_resume(profile: ResumeProfile, job: JobPosting) -> Optional[str]:
     if os.path.exists(tex_path):
         logger.info(f"LaTeX source found ({tex_path}) — using LaTeX pipeline")
         try:
-            return _tailor_via_latex(profile, job, output_path)
+            return _tailor_via_latex(profile, job, output_path, compile_lock=compile_lock)
         except Exception as e:
             logger.error(f"LaTeX pipeline failed for {job.id}: {e}")
             logger.warning("Falling back to ReportLab pipeline...")
