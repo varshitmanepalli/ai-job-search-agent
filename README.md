@@ -296,6 +296,55 @@ Use `gpt-4o-mini` for scoring-only steps to reduce costs to ~$5/month with minim
 
 ---
 
+## LaTeX Resume Integration (Overleaf)
+
+If you build your resume on Overleaf, the agent can use your exact LaTeX source instead of
+rebuilding a generic layout with ReportLab. Your fonts, column structure, custom commands,
+and spacing are all preserved pixel-perfectly.
+
+### Setup (one-time)
+
+1. **Export your LaTeX source from Overleaf**
+   - Overleaf → Menu → Source → Download `.zip`
+   - Extract and locate your main `.tex` file
+
+2. **Add it to the repo**
+   ```bash
+   cp your_resume.tex input/resume.tex
+   # If your template has extra files (.cls, .sty, images), copy them too:
+   cp resume.cls input/
+   ```
+
+3. **Set the right compiler in `.env`**
+   | Template type | Compiler setting |
+   |---|---|
+   | Standard (Jake's Resume, etc.) | `LATEX_COMPILER=pdflatex` |
+   | Uses custom fonts / fontspec | `LATEX_COMPILER=xelatex` |
+   | LuaLaTeX template | `LATEX_COMPILER=lualatex` |
+
+4. That's it. The agent automatically detects `input/resume.tex` and routes
+   through the LaTeX pipeline. If `resume.tex` is absent, it falls back to
+   the built-in ReportLab renderer.
+
+### How the tailoring works
+
+The LLM never sees your LaTeX commands. The pipeline:
+1. **Extracts plain text** from the `.tex` body (strips all `\command{...}` syntax)
+2. **Sends only the text content** + job description to GPT-4o
+3. GPT-4o returns a list of `{old: "...", new: "..."}` surgical replacements
+4. Each replacement is applied as a **verbatim string substitution** into the raw `.tex`
+5. The modified `.tex` is **compiled to PDF** via [latexonline.cc](https://latexonline.cc) (free, no account)
+
+Your preamble, `\newcommand` definitions, column layout, and fonts are never touched.
+The modified `.tex` is also saved alongside the PDF in `output/resumes/` for inspection.
+
+### No LaTeX install needed
+
+Compilation is handled by [latexonline.cc](https://latexonline.cc) — a free REST API that accepts
+your `.tex` source and returns a compiled PDF. No MiKTeX, TeX Live, or local setup required.
+
+---
+
 ## Extending the Agent
 
 ### Add a new job source
