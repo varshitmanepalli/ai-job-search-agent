@@ -191,18 +191,27 @@ def _get_replacements_from_llm(
 
 Return JSON array of replacements.
 """
+    # Do NOT pass response_format={"type": "json_object"} here — OpenAI's
+    # json_object mode requires the root to be an object, but we want a JSON
+    # array. Forcing json_object causes the model to wrap the array in an
+    # envelope object every time, making unwrapping fragile and error-prone.
+    # Instead we strip markdown fences and parse the array directly.
     response = chat_completion(
         system=TAILOR_SYSTEM,
         user=prompt,
-        response_format={"type": "json_object"},
         temperature=0.2,
     )
 
-    # The model sometimes wraps the array in {"replacements": [...]}
-    data = json.loads(response)
+    # Strip optional markdown code fences (```json ... ```)
+    text = response.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+
+    data = json.loads(text)
     if isinstance(data, list):
         return data
-    # Unwrap any single-key envelope
+    # Unwrap any single-key envelope (defensive, shouldn't be needed now)
     for v in data.values():
         if isinstance(v, list):
             return v

@@ -127,7 +127,10 @@ def _compile(
     # Auxiliary files (.cls, .sty, images, etc.)
     if aux_dir and os.path.isdir(aux_dir):
         for path in sorted(Path(aux_dir).iterdir()):
-            if path.is_file() and path.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".pdf", ".eps"):
+            if path.is_file() and path.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".eps"):
+                # .pdf intentionally excluded: resume.pdf next to resume.tex is the
+                # source document, not a LaTeX resource — sending it causes
+                # TeXLive.net to return "Bad form type: no main document"
                 with open(str(path), "rb") as f:
                     content = f.read()
                 form.append(("filecontents[]", (path.name, content, "application/octet-stream")))
