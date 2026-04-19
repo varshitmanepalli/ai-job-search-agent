@@ -104,35 +104,44 @@ def _compile(
     POST .tex source (+ any aux files) to TeXLive.net as multipart form data.
     Returns raw PDF bytes on success, raises RuntimeError on compile failure.
 
-    TeXLive.net multipart fields:
-        filecontents[]  — file body (repeatable for multiple files)
-        filename[]      — corresponding filename (same order as filecontents[])
-        engine          — pdflatex | xelatex | lualatex
-        return          — pdf
+    TeXLive.net requires filecontents[] and filename[] fields to be strictly
+    interleaved in matching order (file1-content, file1-name, file2-content,
+    file2-name, ...). We achieve this by sending EVERYTHING through the
+    `files` parameter as a single ordered list — never splitting across
+    `files` and `data`, which would reorder the parts.
+
+    Field order (per TeXLive.net docs):
+        filecontents[]  file body (text/plain for .tex)
+        filename[]      matching filename string
+        ... repeat for each file ...
+        engine          pdflatex | xelatex | lualatex
+        return          pdf
     """
-    # Build the files list: main .tex first, then aux files
-    files = []
-    filenames = []
+    # All fields in a single list to guarantee multipart ordering
+    form: list = []
 
-    files.append(("filecontents[]", (main_filename, tex_source.encode("utf-8"), "text/plain")))
-    filenames.append(("filename[]", main_filename))
+    # Main .tex file — always first
+    form.append(("filecontents[]", (main_filename, tex_source.encode("utf-8"), "text/plain")))
+    form.append(("filename[]",     (None, main_filename)))
 
+    # Auxiliary files (.cls, .sty, images, etc.)
     if aux_dir and os.path.isdir(aux_dir):
         for path in sorted(Path(aux_dir).iterdir()):
             if path.is_file() and path.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".pdf", ".eps"):
                 with open(str(path), "rb") as f:
                     content = f.read()
-                files.append(("filecontents[]", (path.name, content, "application/octet-stream")))
-                filenames.append(("filename[]", path.name))
+                form.append(("filecontents[]", (path.name, content, "application/octet-stream")))
+                form.append(("filename[]",     (None, path.name)))
                 logger.debug(f"  Including aux file: {path.name}")
 
-    data = filenames + [("engine", compiler), ("return", "pdf")]
+    # Compiler settings — appended after all file pairs
+    form.append(("engine", (None, compiler)))
+    form.append(("return", (None, "pdf")))
 
     resp = requests.post(
         _TEXLIVE_URL,
-        files=files,
-        data=data,
-        timeout=120,   # full TeXLive compile can take 30-60s on first run (cold cache)
+        files=form,          # single list → preserves insertion order in multipart body
+        timeout=120,
         allow_redirects=True,
     )
 
@@ -140,10 +149,9 @@ def _compile(
     if resp.status_code == 200 and resp.content[:4] == b"%PDF":
         return resp.content
 
-    # Success: 200 but got a log instead of PDF (compile error)
+    # 200 but got a log instead of PDF — compile error
     if resp.status_code == 200:
-        log_snippet = resp.text[:1500]
-        raise RuntimeError(f"LaTeX compile error (log):\n{log_snippet}")
+        raise RuntimeError(f"LaTeX compile error (log):\n{resp.text[:1500]}")
 
     # HTTP error
     raise RuntimeError(
