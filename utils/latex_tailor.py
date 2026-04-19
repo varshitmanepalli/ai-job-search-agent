@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 LaTeX Resume Tailor
 ===================
-Uses an LLM to surgically edit ONLY the content nodes in a .tex resume —
-experience bullets, skills list, summary — without touching ANY formatting,
+Uses an LLM to surgically edit ONLY the content nodes in a .tex resume --
+experience bullets, skills list, summary -- without touching ANY formatting,
 preamble, custom commands, or structural LaTeX.
 
 Strategy
@@ -14,11 +14,11 @@ to accidentally alter or drop formatting macros), we:
 1. Parse the .tex source into "content blocks" using regex anchors that
    identify where each section's text lives.
 2. Feed ONLY the extracted plain-text content + the job description to the LLM.
-3. Get back a structured JSON of replacements (old_text → new_text).
+3. Get back a structured JSON of replacements (old_text => new_text).
 4. Apply each replacement as a precise string substitution in the original .tex.
 
 This means the LaTeX preamble, \newcommand definitions, column layout,
-font choices, spacing — everything formatting-related — is never sent to
+font choices, spacing -- everything formatting-related -- is never sent to
 or seen by the LLM.
 
 Supported section patterns (auto-detected):
@@ -46,7 +46,9 @@ def _extract_content_blocks(tex: str) -> str:
     """
     Extract the human-readable text content from a .tex file,
     stripping LaTeX commands but preserving the text structure.
-    Returns a readable plain-text representation for the LLM.
+
+    Handles RenderCV template patterns (twocolentry, onecolentry, highlights)
+    as well as Jake's Resume style and plain LaTeX resumes.
     """
     # Work only within \begin{document}...\end{document}
     doc_match = re.search(
@@ -55,39 +57,88 @@ def _extract_content_blocks(tex: str) -> str:
     )
     body = doc_match.group(1) if doc_match else tex
 
-    # Remove comments
+    # Remove LaTeX comments
     body = re.sub(r"%.*$", "", body, flags=re.MULTILINE)
 
-    # Extract text from common resume commands
-    # \resumeItem{...} → bullet text
-    # \resumeSubheading{Title}{Dates}{Company}{Location} → section header
-    # \section{...} → section title
-    # \textbf{...}, \textit{...}, \href{...}{...} → inline text
-
     readable_lines = []
-    for line in body.split("\n"):
-        line = line.strip()
-        if not line:
+
+    # ── RenderCV: \section{Title} ─────────────────────────────────────
+    for m in re.finditer(r"\\section\{([^}]+)\}", body):
+        readable_lines.append(f"\n### {m.group(1)}")
+
+    # ── RenderCV: \begin{twocolentry}{DATE}\n  \textbf{TITLE}, COMPANY
+    # captures "Title, Company" from the line after twocolentry
+    for m in re.finditer(
+        r"\\begin\{twocolentry\}\{([^}]*)\}\s*\n\s*(.*?)\\end\{twocolentry\}",
+        body, re.DOTALL
+    ):
+        date = m.group(1).strip()
+        header = m.group(2).strip()
+        header_clean = re.sub(r"\\[a-zA-Z]+\*?\{([^}]*)\}", r"\1", header)
+        header_clean = re.sub(r"\\[a-zA-Z@]+", "", header_clean).strip(" \\{}%")
+        if header_clean:
+            readable_lines.append(f"{header_clean}  [{date}]")
+
+    # ── \item lines (bullet points) ───────────────────────────────────
+    for m in re.finditer(r"\\item\s+(.+?)(?=\\item|\\end\{|$)", body, re.DOTALL):
+        bullet = m.group(1).strip()
+        # Expand \textbf{x} → x, \textit{x} → x, \hrefWithoutArrow{url}{text} → text
+        bullet = re.sub(r"\\hrefWithoutArrow\{[^}]*\}\{([^}]*)\}", r"\1", bullet)
+        bullet = re.sub(r"\\href\{[^}]*\}\{([^}]*)\}", r"\1", bullet)
+        bullet = re.sub(r"\\textbf\{([^}]*)\}", r"\1", bullet)
+        bullet = re.sub(r"\\textit\{([^}]*)\}", r"\1", bullet)
+        bullet = re.sub(r"\\[a-zA-Z]+\*?\{([^}]*)\}", r"\1", bullet)
+        bullet = re.sub(r"\\[a-zA-Z@]+\s*", " ", bullet)
+        bullet = re.sub(r"\s+", " ", bullet).strip(" {}[]\\%")
+        bullet = bullet.replace("~", " ").strip()
+        if len(bullet) > 15:
+            readable_lines.append(f"- {bullet}")
+
+    # ── \begin{onecolentry} plain skill lines ─────────────────────────
+    for m in re.finditer(
+        r"\\begin\{onecolentry\}(.*?)\\end\{onecolentry\}",
+        body, re.DOTALL
+    ):
+        content = m.group(1).strip()
+        # Skip if already captured as bullet
+        if r"\item" in content:
             continue
+        content = re.sub(r"\\textbf\{([^}]*)\}", r"\1", content)
+        content = re.sub(r"\\textit\{([^}]*)\}", r"\1", content)
+        content = re.sub(r"\\[a-zA-Z]+\*?\{([^}]*)\}", r"\1", content)
+        content = re.sub(r"\\[a-zA-Z@]+\s*", " ", content)
+        content = re.sub(r"\s+", " ", content).strip(" {}[]\\%")
+        if len(content) > 10:
+            readable_lines.append(content)
 
-        # Skip pure LaTeX structural lines
-        if re.match(r"^\\(begin|end|vspace|hspace|newline|hfill|noindent|centering|"
-                    r"resumeItemListStart|resumeItemListEnd|resumeSubHeadingListStart|"
-                    r"resumeSubHeadingListEnd|resumeProjectHeading|small|normalsize|"
-                    r"selectfont|setlength|pagestyle|thispagestyle)\b", line):
-            continue
+    # ── Professional summary (plain paragraphs after \section{...Summary...})
+    summary_match = re.search(
+        r"\\section\{[^}]*[Ss]ummary[^}]*\}(.*?)(?=\\section\{|\\end\{document\})",
+        body, re.DOTALL
+    )
+    if summary_match:
+        para = summary_match.group(1).strip()
+        para = re.sub(r"\\textbf\{([^}]*)\}", r"\1", para)
+        para = re.sub(r"\\[a-zA-Z]+\*?\{([^}]*)\}", r"\1", para)
+        para = re.sub(r"\\[a-zA-Z@]+\s*", " ", para)
+        para = re.sub(r"\s+", " ", para).strip(" {}[]\\%")
+        if len(para) > 20:
+            readable_lines.insert(0, f"### Professional Summary\n{para}\n")
 
-        # Keep lines that have actual words
-        # Strip LaTeX commands to expose the text
-        text = re.sub(r"\\[a-zA-Z]+\*?\{([^}]*)\}", r"\1", line)  # \cmd{text} → text
-        text = re.sub(r"\\[a-zA-Z]+\s*", "", text)                  # remaining \cmd
-        text = re.sub(r"[{}\[\]]", "", text)                        # braces
-        text = text.strip()
-
-        if len(text) > 10:  # skip very short fragments
-            readable_lines.append(text)
-
-    return "\n".join(readable_lines)
+    # Final cleanup of LaTeX escape artifacts in the extracted text
+    output = "\n".join(readable_lines)
+    output = output.replace(r"\$", "$")
+    output = output.replace(r"\&", "&")
+    output = output.replace(r"\%", "%")
+    output = output.replace(r"\_", "_")
+    output = output.replace(r"\#", "#")
+    output = output.replace(r"~", " ")
+    # Remove stray single backslashes and leftover braces
+    import re as _re
+    output = _re.sub(r"\\\s", " ", output)
+    output = _re.sub(r"(?<!\{)\{(?!\d)", "", output)   # lone { not part of \cmd{
+    output = _re.sub(r"\s{2,}", " ", output)
+    return output
 
 
 # ──────────────────────────────────────────────────────────────────────────────
