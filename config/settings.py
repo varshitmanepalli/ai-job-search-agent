@@ -66,6 +66,7 @@ class ScheduleConfig:
 @dataclass
 class PathConfig:
     resume_pdf: str = "input/resume.pdf"
+    resume_tex: str = "input/resume.tex"      # Overleaf LaTeX source (optional but preferred)
     resume_profile_cache: str = "output/logs/resume_profile.json"
     seen_jobs_log: str = "output/logs/seen_jobs.json"
     tailored_resumes_dir: str = "output/resumes"

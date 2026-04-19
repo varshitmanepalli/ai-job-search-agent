@@ -264,12 +264,71 @@ def _render_resume_pdf(data: dict, output_path: str):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# LaTeX pipeline (preferred when input/resume.tex exists)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str) -> str:
+    """
+    Tailor the resume using the LaTeX source file:
+      1. Surgically edit content-only nodes in the .tex file via LLM.
+      2. Compile the modified .tex to PDF via latexonline.cc.
+    Preserves exact template formatting, fonts, and layout from Overleaf.
+    """
+    from utils.latex_tailor import tailor_tex_for_job
+    from utils.latex_compiler import compile_tex_to_pdf
+
+    tex_path = config.paths.resume_tex
+    compiler = os.getenv("LATEX_COMPILER", "pdflatex")
+
+    with open(tex_path, "r", encoding="utf-8") as f:
+        original_tex = f.read()
+
+    # Detect if there's an aux directory (sibling files like .cls, .sty, images)
+    tex_dir = os.path.dirname(os.path.abspath(tex_path))
+    aux_files = [
+        p for p in Path(tex_dir).iterdir()
+        if p.is_file() and p.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".pdf")
+    ]
+    aux_dir = tex_dir if aux_files else None
+
+    # Step 1: LLM surgically edits content nodes
+    modified_tex = tailor_tex_for_job(
+        tex_source=original_tex,
+        job_title=job.title,
+        job_company=job.company,
+        job_description=job.description,
+    )
+
+    # Step 2: Compile modified .tex → PDF
+    main_filename = os.path.basename(tex_path)
+    compile_tex_to_pdf(
+        tex_source=modified_tex,
+        output_path=output_path,
+        aux_dir=aux_dir,
+        main_filename=main_filename,
+        compiler=compiler,
+    )
+
+    # Also save the modified .tex alongside the PDF (useful for debugging)
+    tex_out = output_path.replace(".pdf", ".tex")
+    with open(tex_out, "w", encoding="utf-8") as f:
+        f.write(modified_tex)
+
+    return output_path
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
 def tailor_resume(profile: ResumeProfile, job: JobPosting) -> Optional[str]:
     """
     Generate a tailored PDF resume for the given job.
+
+    Routing logic:
+      - If input/resume.tex exists  → LaTeX pipeline (exact Overleaf template)
+      - Otherwise                   → ReportLab pipeline (generic clean layout)
+
     Returns the absolute path to the PDF, or None on failure.
     """
     safe_company = re.sub(r"[^\w\-]", "_", job.company)[:30]
@@ -282,19 +341,34 @@ def tailor_resume(profile: ResumeProfile, job: JobPosting) -> Optional[str]:
         logger.info(f"Tailored resume already exists: {filename}")
         return output_path
 
+    logger.info(f"Tailoring resume for: {job.title} @ {job.company}")
+
+    # ── Route: LaTeX (preferred) ──────────────────────────────────────────────
+    tex_path = getattr(config.paths, "resume_tex", "input/resume.tex")
+    if os.path.exists(tex_path):
+        logger.info(f"LaTeX source found ({tex_path}) — using LaTeX pipeline")
+        try:
+            return _tailor_via_latex(profile, job, output_path)
+        except Exception as e:
+            logger.error(f"LaTeX pipeline failed for {job.id}: {e}")
+            logger.warning("Falling back to ReportLab pipeline...")
+            # Remove partial output if any
+            if os.path.exists(output_path):
+                os.remove(output_path)
+
+    # ── Route: ReportLab (fallback) ───────────────────────────────────────────
+    logger.info("Using ReportLab pipeline")
     try:
-        logger.info(f"Tailoring resume for: {job.title} @ {job.company}")
         tailored_data = _tailor_resume_with_llm(profile, job)
         _render_resume_pdf(tailored_data, output_path)
         return output_path
     except Exception as e:
-        logger.error(f"Resume tailoring failed for {job.id}: {e}")
-        # Fall back to rendering the original resume
+        logger.error(f"ReportLab tailoring failed for {job.id}: {e}")
         try:
             from dataclasses import asdict
             _render_resume_pdf(asdict(profile), output_path)
             logger.info(f"Fell back to original resume for {job.id}")
             return output_path
         except Exception as e2:
-            logger.error(f"Fallback rendering also failed: {e2}")
+            logger.error(f"All resume generation methods failed: {e2}")
             return None
