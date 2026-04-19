@@ -289,7 +289,9 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
     tex_dir = os.path.dirname(os.path.abspath(tex_path))
     aux_files = [
         p for p in Path(tex_dir).iterdir()
-        if p.is_file() and p.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".pdf")
+        if p.is_file() and p.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".eps")
+        # .pdf intentionally excluded: resume.pdf sitting next to resume.tex is the
+        # source document, not a LaTeX resource — sending it confuses TeXLive.net
     ]
     aux_dir = tex_dir if aux_files else None
 
@@ -308,6 +310,8 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
 
     # Step 2 (serialized): compile — acquire lock so only one compile hits
     # TeXLive.net at a time; all others wait their turn.
+    # A 3-second cooldown after release prevents rate-limit rejections.
+    import time as _time
     main_filename = os.path.basename(tex_path)
     if compile_lock is not None:
         logger.debug(f"Waiting for compile slot: {job.company}")
@@ -322,6 +326,7 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
         )
     finally:
         if compile_lock is not None:
+            _time.sleep(3)   # cooldown: let TeXLive.net finish before next request
             compile_lock.release()
 
     return output_path

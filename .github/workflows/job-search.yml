@@ -56,6 +56,17 @@ jobs:
           echo "$RESUME_PDF_BASE64" | base64 --decode > input/resume.pdf
           echo "Resume PDF restored ($(du -sh input/resume.pdf | cut -f1))"
 
+      - name: Decode resume LaTeX source from secret
+        env:
+          RESUME_TEX_BASE64: ${{ secrets.RESUME_TEX_BASE64 }}
+        run: |
+          if [ -n "$RESUME_TEX_BASE64" ]; then
+            echo "$RESUME_TEX_BASE64" | base64 --decode > input/resume.tex
+            echo "Resume LaTeX source restored ($(wc -l < input/resume.tex) lines)"
+          else
+            echo "RESUME_TEX_BASE64 not set — skipping LaTeX source restore (ReportLab fallback will be used)"
+          fi
+
       - name: Run Job Search Agent
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

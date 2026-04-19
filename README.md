@@ -73,7 +73,7 @@ An automated AI agent that analyzes your resume, discovers highly relevant AI/ML
 | **LLM** | GPT-4o (OpenAI) | Best JSON extraction accuracy + cost balance |
 | **Resume Parsing** | pdfplumber + LLM | pdfplumber preserves layout; LLM extracts structure |
 | **Job Discovery** | Adzuna API + YC RSS + Greenhouse API + Lever API | All free/low-cost; official APIs (no scraping) |
-| **PDF Generation** | ReportLab | Pure Python, no external dependencies, fully programmatic |
+| **PDF Generation** | ReportLab (fallback) / TeXLive.net (LaTeX) | ReportLab = pure Python fallback; TeXLive.net = full TeX Live cloud compiler for Overleaf templates |
 | **Email Delivery** | SMTP (Gmail) or SendGrid | SMTP = free; SendGrid = production reliability |
 | **Scheduler** | APScheduler | Battle-tested Python scheduler, no infra needed |
 | **Retry Logic** | Tenacity | Handles LLM/API rate limits gracefully |
@@ -97,6 +97,10 @@ pip install -r requirements.txt
 ```bash
 mkdir -p input
 cp /path/to/your/resume.pdf input/resume.pdf
+
+# Optional but recommended: add your LaTeX source for pixel-perfect tailoring
+# (see LaTeX Resume Integration section below)
+cp /path/to/your/resume.tex input/resume.tex
 ```
 
 ### 3. Configure environment
@@ -194,37 +198,45 @@ WantedBy=multi-user.target
 sudo systemctl enable job-agent && sudo systemctl start job-agent
 ```
 
-### Option C: GitHub Actions (free, cloud-hosted)
+### Option C: GitHub Actions (recommended — free, zero infrastructure)
 
-```yaml
-# .github/workflows/job-search.yml
-name: Job Search Agent
-on:
-  schedule:
-    - cron: '0 11 * * *'   # 6 AM ET (UTC-5)
-    - cron: '0 23 * * *'   # 6 PM ET (UTC-5)
-  workflow_dispatch:
+The workflow at `.github/workflows/job-search.yml` is already configured. You just need to add secrets.
 
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - run: pip install -r requirements.txt
-      - run: python main.py
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
-          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
-          HUNTER_API_KEY: ${{ secrets.HUNTER_API_KEY }}
+#### Step 1 — Encode your resume files
+
+```bash
+# On macOS / Linux:
+base64 -i input/resume.pdf | tr -d '\n'   # copy output → RESUME_PDF_BASE64 secret
+base64 -i input/resume.tex | tr -d '\n'   # copy output → RESUME_TEX_BASE64 secret
+
+# On Windows (PowerShell):
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('input\resume.pdf'))
+[Convert]::ToBase64String([IO.File]::ReadAllBytes('input\resume.tex'))
 ```
 
-> GitHub Actions is the recommended production deployment — free, zero infrastructure, logs every run.
+#### Step 2 — Add GitHub Secrets
+
+Go to **Settings → Secrets and variables → Actions → New repository secret** and add:
+
+| Secret name | Value |
+|---|---|
+| `OPENAI_API_KEY` | Your OpenAI key |
+| `SENDER_EMAIL` | Gmail address |
+| `SENDER_PASSWORD` | Gmail App Password |
+| `RECIPIENT_EMAIL` | `varshitmanepalli1810@gmail.com` |
+| `ADZUNA_APP_ID` | Your Adzuna app ID |
+| `ADZUNA_APP_KEY` | Your Adzuna app key |
+| `HUNTER_API_KEY` | Hunter.io key (optional) |
+| `RESUME_PDF_BASE64` | Base64-encoded `resume.pdf` (from Step 1) |
+| `RESUME_TEX_BASE64` | Base64-encoded `resume.tex` (from Step 1) — enables LaTeX pipeline |
+
+#### Step 3 — Trigger manually to test
+
+Go to **Actions → AI Job Search Agent → Run workflow** to test before the first scheduled run.
+
+> The workflow runs at **6:00 AM and 6:00 PM Eastern Time** (UTC crons `0 11 * * *` and `0 23 * * *`).
+> Logs and HTML reports are uploaded as workflow artifacts after each run (kept 7 days).
+> No server, no Docker, no cron daemon — GitHub handles everything.
 
 ### Option D: Railway / Render / Fly.io
 
@@ -263,11 +275,14 @@ job-search-agent/
 │
 ├── utils/
 │   ├── llm_client.py           # OpenAI/Anthropic wrapper with retry
+│   ├── latex_compiler.py       # TeXLive.net POST compile
+│   ├── latex_tailor.py         # LLM surgical .tex content edits
 │   ├── dedup.py                # Seen-jobs rolling log
 │   └── logger.py               # Structured logging
 │
 ├── input/
-│   └── resume.pdf              # YOUR RESUME HERE (not committed)
+│   ├── resume.pdf              # YOUR RESUME HERE (not committed)
+│   └── resume.tex              # YOUR LATEX SOURCE (optional, enables LaTeX pipeline)
 │
 └── output/
     ├── resumes/                # Tailored PDF resumes
@@ -333,15 +348,16 @@ The LLM never sees your LaTeX commands. The pipeline:
 2. **Sends only the text content** + job description to GPT-4o
 3. GPT-4o returns a list of `{old: "...", new: "..."}` surgical replacements
 4. Each replacement is applied as a **verbatim string substitution** into the raw `.tex`
-5. The modified `.tex` is **compiled to PDF** via [latexonline.cc](https://latexonline.cc) (free, no account)
+5. The modified `.tex` is **compiled to PDF** via [TeXLive.net](https://texlive.net) (free, no account, full TeX Live)
 
 Your preamble, `\newcommand` definitions, column layout, and fonts are never touched.
 The modified `.tex` is also saved alongside the PDF in `output/resumes/` for inspection.
 
 ### No LaTeX install needed
 
-Compilation is handled by [latexonline.cc](https://latexonline.cc) — a free REST API that accepts
-your `.tex` source and returns a compiled PDF. No MiKTeX, TeX Live, or local setup required.
+Compilation is handled by [TeXLive.net](https://texlive.net) — a free REST API with the complete TeX Live
+distribution. Packages like `fontawesome5`, `paracol`, `charter`, and `eso-pic` all work out of the box.
+No MiKTeX, local TeX Live, or any local setup required.
 
 ---
 
