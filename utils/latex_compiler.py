@@ -37,11 +37,10 @@ _TEXLIVE_URL = "https://texlive.net/cgi-bin/latexcgi"
 _COMPILER = os.getenv("LATEX_COMPILER", "pdflatex")
 
 
-# TeXLive.net requires a consistent, known entry-point filename.
-# We always send the source as "main.tex" regardless of what the file is
-# called locally (resume.tex, cv.tex, etc.).  This matches the convention
-# used by Overleaf and avoids "no main document" errors.
-_MAIN_TEX_FILENAME = "main.tex"
+# TeXLive.net requires the main document to be named exactly "document.tex".
+# Any other name causes "Bad form type: no main document".
+# Source: https://davidcarlisle.github.io/latexcgi
+_MAIN_TEX_FILENAME = "document.tex"
 
 
 def compile_tex_to_pdf(
@@ -112,26 +111,25 @@ def _compile(
     aux_dir: Optional[str],
 ) -> bytes:
     """
-    POST .tex source (+ any aux files) to TeXLive.net as multipart form data.
-    Returns raw PDF bytes on success, raises RuntimeError on compile failure.
+    POST .tex source (+ any aux files) to TeXLive.net and return raw PDF bytes.
 
-    TeXLive.net requires filecontents[] and filename[] fields to be strictly
-    interleaved in matching order (file1-content, file1-name, file2-content,
-    file2-name, ...). We achieve this by sending EVERYTHING through the
-    `files` parameter as a single ordered list — never splitting across
-    `files` and `data`, which would reorder the parts.
+    Protocol (per https://davidcarlisle.github.io/latexcgi):
+      1. POST multipart form to https://texlive.net/cgi-bin/latexcgi
+           - filecontents[] / filename[] pairs (interleaved, main file first)
+           - filename[] value for the main file MUST be "document.tex"
+           - engine field (pdflatex / xelatex / lualatex)
+           - NO "return" field — any unrecognised field rejects the whole form
+      2. On compile success: server returns HTTP 301 → Location header points
+         to /pdfjs/web/viewer.html?file=/latexcgi/document_XXXX.pdf
+      3. Extract the PDF path from the Location header and fetch it directly.
+      4. On compile failure: server returns HTTP 200 with the plain-text log.
 
-    Field order (per TeXLive.net docs):
-        filecontents[]  file body (text/plain for .tex)
-        filename[]      matching filename string
-        ... repeat for each file ...
-        engine          pdflatex | xelatex | lualatex
-        return          pdf
+    IMPORTANT: do NOT follow the redirect (allow_redirects=False).
     """
-    # All fields in a single list to guarantee multipart ordering
+    # Build form — all fields in one list to preserve multipart ordering
     form: list = []
 
-    # Main .tex file — always first
+    # Main .tex — MUST be named "document.tex" (TeXLive.net hard requirement)
     form.append(("filecontents[]", (main_filename, tex_source.encode("utf-8"), "text/plain")))
     form.append(("filename[]",     (None, main_filename)))
 
@@ -139,35 +137,50 @@ def _compile(
     if aux_dir and os.path.isdir(aux_dir):
         for path in sorted(Path(aux_dir).iterdir()):
             if path.is_file() and path.suffix in (".cls", ".sty", ".bst", ".png", ".jpg", ".eps"):
-                # .pdf intentionally excluded: resume.pdf next to resume.tex is the
-                # source document, not a LaTeX resource — sending it causes
-                # TeXLive.net to return "Bad form type: no main document"
+                # .pdf excluded — resume.pdf next to resume.tex is the source
+                # document, not a LaTeX resource.
                 with open(str(path), "rb") as f:
                     content = f.read()
                 form.append(("filecontents[]", (path.name, content, "application/octet-stream")))
                 form.append(("filename[]",     (None, path.name)))
                 logger.debug(f"  Including aux file: {path.name}")
 
-    # Compiler settings — appended after all file pairs
+    # Engine — only the engine field; no "return" field (unknown fields reject the form)
     form.append(("engine", (None, compiler)))
-    form.append(("return", (None, "pdf")))
 
+    # Step 1: POST — do NOT follow the redirect
     resp = requests.post(
         _TEXLIVE_URL,
-        files=form,          # single list → preserves insertion order in multipart body
+        files=form,
         timeout=120,
-        allow_redirects=True,
+        allow_redirects=False,   # we handle the redirect manually
     )
 
-    # Success: 200 with PDF content
-    if resp.status_code == 200 and resp.content[:4] == b"%PDF":
-        return resp.content
+    # Step 2: 301 = compile succeeded; Location header has the PDF viewer URL
+    if resp.status_code == 301:
+        location = resp.headers.get("Location", "")
+        # Location: /pdfjs/web/viewer.html?file=/latexcgi/document_XXXX.pdf
+        # Extract the PDF path from the "file=" query parameter
+        import re as _re
+        match = _re.search(r"file=(/latexcgi/[^&]+\.pdf)", location)
+        if not match:
+            raise RuntimeError(
+                f"TeXLive.net 301 but no PDF path in Location header: {location!r}"
+            )
+        pdf_url = f"https://texlive.net{match.group(1)}"
+        logger.debug(f"Fetching compiled PDF from: {pdf_url}")
+        pdf_resp = requests.get(pdf_url, timeout=60)
+        if pdf_resp.status_code != 200 or pdf_resp.content[:4] != b"%PDF":
+            raise RuntimeError(
+                f"PDF fetch failed (HTTP {pdf_resp.status_code}): {pdf_resp.text[:400]}"
+            )
+        return pdf_resp.content
 
-    # 200 but got a log instead of PDF — compile error
+    # 200 = compile error — server returns the plain-text log
     if resp.status_code == 200:
-        raise RuntimeError(f"LaTeX compile error (log):\n{resp.text[:1500]}")
+        raise RuntimeError(f"LaTeX compile error (log):\n{resp.text[:2000]}")
 
-    # HTTP error
+    # Any other HTTP status
     raise RuntimeError(
         f"TeXLive.net HTTP {resp.status_code}:\n{resp.text[:800]}"
     )
