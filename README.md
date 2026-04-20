@@ -151,34 +151,47 @@ Watch the run complete. Logs are visible in real time. After it finishes:
 
 ### Step 5 — Change the run times (whenever you want)
 
-Open `.github/workflows/job-search.yml` in the repo and find the two `cron:` lines near the top. The file has a full reference table built in.
+Open `config/settings.py` and edit the `RUN_TIMES_ET` list at the very top of the file. Use plain 24-hour `"HH:MM"` strings in Eastern Time — no UTC conversion, no cron syntax.
 
-**Quick reference — ET → UTC conversion:**
+```python
+# config/settings.py — top of file
 
-| Desired ET time | Winter cron (Nov–Mar) | Summer cron (Mar–Nov) |
-|-----------------|-----------------------|-----------------------|
-| 6:00 AM ET | `0 11 * * *` | `0 10 * * *` |
-| 7:00 AM ET | `0 12 * * *` | `0 11 * * *` |
-| 8:00 AM ET | `0 13 * * *` | `0 12 * * *` |
-| 9:00 AM ET | `0 14 * * *` | `0 13 * * *` |
-| 12:00 PM ET | `0 17 * * *` | `0 16 * * *` |
-| 6:00 PM ET | `0 23 * * *` | `0 22 * * *` |
-| 7:00 PM ET | `0 0 * * *` | `0 23 * * *` |
-| 8:00 PM ET | `0 1 * * *` | `0 0 * * *` |
-
-**Example — change from 6 AM / 6 PM to 8 AM / 8 PM (summer):**
-
-```yaml
-# Before
-- cron: '0 11 * * *'   # 6:00 AM ET (winter EST)
-- cron: '0 23 * * *'   # 6:00 PM ET (winter EST)
-
-# After
-- cron: '0 12 * * *'   # 8:00 AM ET (summer EDT)
-- cron: '0 0 * * *'    # 8:00 PM ET (summer EDT)
+RUN_TIMES_ET = ["06:00", "18:00"]   # ← change this to whatever you want
 ```
 
-Commit and push the change — GitHub picks it up immediately, no other steps needed.
+**Examples:**
+
+```python
+RUN_TIMES_ET = ["08:00", "20:00"]          # 8:00 AM and 8:00 PM ET
+RUN_TIMES_ET = ["09:00"]                   # 9:00 AM ET only (once a day)
+RUN_TIMES_ET = ["07:00", "12:00", "19:00"] # three times a day
+```
+
+Then run this one command from the repo root — it converts ET to UTC automatically and updates the workflow file:
+
+```bash
+python scripts/set_schedule.py
+```
+
+You'll see output like:
+
+```
+Found 2 run time(s) in config/settings.py:
+  08:00 ET  →  UTC cron: '0 12 * * *'  (8:00 AM EDT)
+  20:00 ET  →  UTC cron: '0 0 * * *'   (8:00 PM EDT)
+
+Workflow updated: .github/workflows/job-search.yml
+```
+
+Then commit and push:
+
+```bash
+git add config/settings.py .github/workflows/job-search.yml
+git commit -m "Update schedule"
+git push
+```
+
+GitHub picks up the new schedule immediately. The script handles EST/EDT automatically — run it any time of year and the UTC offset will be correct.
 
 ---
 
@@ -202,7 +215,7 @@ Commit and push the change — GitHub picks it up immediately, no other steps ne
 
 ### Run times
 
-Edit `.github/workflows/job-search.yml` — see Step 5 above.
+Edit `RUN_TIMES_ET` at the top of `config/settings.py`, then run `python scripts/set_schedule.py` and push — see Step 5 above.
 
 ### Target roles
 

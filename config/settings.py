@@ -3,6 +3,24 @@ Central configuration for the AI Job Search Agent.
 All secrets are loaded from environment variables or a .env file.
 """
 
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║                  SCHEDULE — EDIT THIS TO CHANGE RUN TIMES           ║
+# ║                                                                      ║
+# ║  List the times you want the agent to run, in Eastern Time (ET).     ║
+# ║  Use 24-hour "HH:MM" format.                                         ║
+# ║                                                                      ║
+# ║  Examples:                                                           ║
+# ║    ["06:00", "18:00"]   →  6:00 AM and 6:00 PM ET  (current)        ║
+# ║    ["08:00", "20:00"]   →  8:00 AM and 8:00 PM ET                   ║
+# ║    ["09:00"]            →  9:00 AM ET only (once a day)             ║
+# ║    ["07:00", "12:00", "19:00"]  →  three times a day               ║
+# ║                                                                      ║
+# ║  After changing this, run once from the repo root:                   ║
+# ║    python scripts/set_schedule.py                                    ║
+# ║  Then commit and push the updated workflow file.                     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+RUN_TIMES_ET = ["06:00", "18:00"]
+
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -58,8 +76,8 @@ class EmailConfig:
 
 @dataclass
 class ScheduleConfig:
-    # Times in Eastern Time (America/New_York)
-    run_times_et: List[str] = field(default_factory=lambda: ["06:00", "18:00"])
+    # Reads from the RUN_TIMES_ET constant at top of this file
+    run_times_et: List[str] = field(default_factory=lambda: RUN_TIMES_ET)
     timezone: str = "America/New_York"
 
 
