@@ -361,10 +361,13 @@ def tailor_resume(profile: ResumeProfile, job: JobPosting, compile_lock=None) ->
     # ── Route: LaTeX (preferred) ──────────────────────────────────────────────
     tex_path = getattr(config.paths, "resume_tex", "input/resume.tex")
     if os.path.exists(tex_path):
+        print("LaTeX source found")
         logger.info(f"LaTeX source found ({tex_path}) — using LaTeX pipeline")
         try:
+            print("Using LaTeX pipeline")
             return _tailor_via_latex(profile, job, output_path, compile_lock=compile_lock)
         except Exception as e:
+            print("LaTeX pipeline failed")
             logger.error(f"LaTeX pipeline failed for {job.id}: {e}")
             logger.warning("Falling back to ReportLab pipeline...")
             # Remove partial output if any
