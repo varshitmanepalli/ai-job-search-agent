@@ -51,6 +51,19 @@ GitHub Actions (cron: 6 AM + 6 PM ET)
 
 ---
 
+## Repository Architecture
+
+This project uses **two repositories** to keep your code public while your resume stays private:
+
+| Repo | Visibility | Contains |
+|------|-----------|---------|
+| [`ai-job-search-agent`](https://github.com/varshitmanepalli/ai-job-search-agent) | **Public** | All code, workflow, config |
+| [`ai-job-search-resume`](https://github.com/varshitmanepalli/ai-job-search-resume) | **Private** | `resume.pdf` + `resume.tex` only |
+
+The GitHub Actions workflow automatically checks out your private resume repo (using a Personal Access Token secret) and copies the files into `input/` before each run. You never need to share your resume publicly.
+
+---
+
 ## Cloud Deployment (GitHub Actions)
 
 > **This is the recommended and primary deployment path.** No server, no Docker, no cron daemon. GitHub runs it free on a schedule.
@@ -62,27 +75,33 @@ git clone https://github.com/varshitmanepalli/ai-job-search-agent.git
 cd ai-job-search-agent
 ```
 
-If you're setting this up for the first time, push it to your own GitHub account:
+If you're setting this up for the first time on your own account, push it to a new GitHub repo:
 
 ```bash
-# Create a new private repo on github.com, then:
+# Create a new repo on github.com, then:
 git remote set-url origin https://github.com/YOUR_USERNAME/ai-job-search-agent.git
 git push -u origin master
 ```
 
 ---
 
-### Step 2 — Upload your resume files
+### Step 2 — Set up your private resume repo
 
-Resume files are stored in a dedicated **`resume-assets` branch** — a separate, isolated branch with no code, just your PDF and `.tex` file. This avoids GitHub Secrets size limits entirely and makes updating your resume as simple as a `git push`.
+Your resume files live in a **separate private repository** called `ai-job-search-resume`. This keeps them off the public internet even when your code repo is public.
 
-**One-time setup — clone the branch and add your files:**
+#### 2a — Create the private resume repo
+
+1. Go to [github.com/new](https://github.com/new)
+2. Name it exactly: `ai-job-search-resume`
+3. Set visibility to **Private**
+4. Click **Create repository**
+
+#### 2b — Push your resume files to it
 
 ```bash
-# Clone only the resume-assets branch into a separate folder
-git clone --branch resume-assets --single-branch \
-  https://github.com/varshitmanepalli/ai-job-search-agent.git resume-assets
-cd resume-assets
+# Clone the empty private repo
+git clone https://github.com/YOUR_USERNAME/ai-job-search-resume.git
+cd ai-job-search-resume
 
 # Copy your resume files in
 cp /path/to/your/resume.pdf resume.pdf
@@ -91,32 +110,51 @@ cp /path/to/your/resume.tex resume.tex   # from Overleaf → Menu → Source →
 # Push to GitHub
 git add resume.pdf resume.tex
 git commit -m "Add resume files"
-git push origin resume-assets
+git push origin main
 ```
 
-That's it. The workflow automatically checks out this branch and copies the files into `input/` before each run.
+That's it. The workflow fetches these files automatically before every run.
 
-**Updating your resume later** — just push new files to the same branch:
+#### Updating your resume later
+
+When you update your resume on Overleaf:
+
+1. Download the PDF (`resume.pdf`) and source (`resume.tex`) from Overleaf
+2. Push them to the resume repo:
 
 ```bash
-cd resume-assets                         # the folder you cloned above
+cd ai-job-search-resume          # the folder you cloned above
 cp /path/to/updated-resume.pdf resume.pdf
 cp /path/to/updated-resume.tex resume.tex
 git add resume.pdf resume.tex
 git commit -m "Update resume"
-git push origin resume-assets
+git push origin main
 ```
 
 The next scheduled run picks them up automatically and rebuilds the profile cache.
 
 ---
 
-### Step 3 — Add GitHub Secrets
+### Step 3 — Create a Personal Access Token (PAT)
 
-Go to your repo on GitHub:
+The workflow needs permission to read your private resume repo. You grant this via a GitHub Personal Access Token.
+
+1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**
+2. Click **Generate new token**
+3. Set a name: `resume-repo-access`
+4. Set expiration: 1 year (or No expiration)
+5. Under **Repository access**, select **Only select repositories** → choose `ai-job-search-resume`
+6. Under **Permissions → Repository permissions**, set **Contents** to **Read-only**
+7. Click **Generate token** and copy it immediately (you won't see it again)
+
+---
+
+### Step 4 — Add GitHub Secrets
+
+Go to your **code repo** on GitHub:
 **Settings → Secrets and variables → Actions → New repository secret**
 
-Resume files are stored in the `resume-assets` branch — **not** as secrets. Only API keys go here.
+Add each of the following:
 
 | Secret | Value | Where to get it |
 |--------|-------|-----------------|
@@ -126,6 +164,7 @@ Resume files are stored in the `resume-assets` branch — **not** as secrets. On
 | `RECIPIENT_EMAIL` | Email to receive reports | Can be the same as `SENDER_EMAIL` |
 | `ADZUNA_APP_ID` | e.g. `0eb6bb03` | [developer.adzuna.com](https://developer.adzuna.com) — free tier |
 | `ADZUNA_APP_KEY` | e.g. `266e2b6b...` | Same Adzuna dashboard |
+| `RESUME_REPO_PAT` | The PAT from Step 3 | Paste the token you just generated |
 | `HUNTER_API_KEY` | *(optional)* | [hunter.io](https://hunter.io) — 25 free searches/month for hiring manager lookup |
 
 > **Gmail App Password setup:**
@@ -133,7 +172,7 @@ Resume files are stored in the `resume-assets` branch — **not** as secrets. On
 
 ---
 
-### Step 4 — Test the workflow manually
+### Step 5 — Test the workflow manually
 
 Before waiting for the scheduled run, trigger it manually:
 
@@ -149,7 +188,7 @@ Watch the run complete. Logs are visible in real time. After it finishes:
 
 ---
 
-### Step 5 — Change the run times (whenever you want)
+### Step 6 — Change the run times (whenever you want)
 
 Open `config/settings.py` and edit the `RUN_TIMES_ET` list at the very top of the file. Use plain 24-hour `"HH:MM"` strings in Eastern Time — no UTC conversion, no cron syntax.
 
@@ -199,12 +238,12 @@ GitHub picks up the new schedule immediately. The script handles EST/EDT automat
 
 | Step | What it does |
 |------|-------------|
-| Checkout | Pulls latest code |
+| Checkout | Pulls latest code from `ai-job-search-agent` |
+| Checkout resume repo | Checks out your private `ai-job-search-resume` using `RESUME_REPO_PAT` |
+| Copy resume files | Copies `resume.pdf` (required) and `resume.tex` (optional) into `input/` |
 | Python setup | Installs 3.11 with pip cache |
 | Restore resume cache | Avoids re-parsing if PDF unchanged |
 | Restore seen-jobs log | Prevents duplicate job alerts across runs |
-| Checkout resume-assets branch | Checks out your private `resume-assets` branch into a staging folder |
-| Copy resume files | Copies `resume.pdf` (required) and `resume.tex` (optional) into `input/` |
 | Run agent | Full pipeline: discover → score → tailor → email |
 | Upload artifacts | Saves HTML report + agent.log for 7 days |
 | Save seen-jobs log | Persists dedup state so next run doesn't repeat jobs |
@@ -215,7 +254,7 @@ GitHub picks up the new schedule immediately. The script handles EST/EDT automat
 
 ### Run times
 
-Edit `RUN_TIMES_ET` at the top of `config/settings.py`, then run `python scripts/set_schedule.py` and push — see Step 5 above.
+Edit `RUN_TIMES_ET` at the top of `config/settings.py`, then run `python scripts/set_schedule.py` and push — see Step 6 above.
 
 ### Target roles
 
@@ -267,25 +306,6 @@ llm.model = "gpt-4o"        # Better; recommended for tailoring
 
 ---
 
-## Updating your resume
-
-When you update your resume on Overleaf:
-
-1. Download the PDF (`resume.pdf`) and the `.tex` source from Overleaf
-2. Go to the `resume-assets` folder you cloned in Step 2 of the setup
-3. Copy the new files in and push:
-   ```bash
-   cd resume-assets
-   cp /path/to/updated-resume.pdf resume.pdf
-   cp /path/to/updated-resume.tex resume.tex
-   git add resume.pdf resume.tex
-   git commit -m "Update resume"
-   git push origin resume-assets
-   ```
-4. The next run automatically uses the new files and rebuilds the profile cache
-
----
-
 ## What the email report contains
 
 Each job card in the report shows:
@@ -303,7 +323,7 @@ Tailored resume PDFs are attached to the email, one per job.
 
 ## LaTeX Resume Integration (Overleaf)
 
-When `resume.tex` is present in the `resume-assets` branch, the agent uses your exact Overleaf LaTeX source instead of rebuilding a generic layout. Your fonts, column structure, custom commands, and spacing are preserved exactly.
+When `resume.tex` is present in the `ai-job-search-resume` repo, the agent uses your exact Overleaf LaTeX source instead of rebuilding a generic layout. Your fonts, column structure, custom commands, and spacing are preserved exactly.
 
 ### How tailoring works
 
@@ -340,13 +360,13 @@ The profile cache invalidates automatically whenever either file changes.
 ## File structure
 
 ```
-ai-job-search-agent/
+ai-job-search-agent/          ← PUBLIC repo (this repo)
 ├── .github/
 │   └── workflows/
-│       └── job-search.yml      # ← EDIT THIS to change run times
+│       └── job-search.yml      # Workflow; run times auto-managed by set_schedule.py
 │
 ├── config/
-│   └── settings.py             # ← EDIT THIS to change roles, thresholds, model
+│   └── settings.py             # ← EDIT: roles, thresholds, model, RUN_TIMES_ET
 │
 ├── agents/
 │   ├── resume_agent.py         # PDF + LaTeX hybrid extraction, profile cache
@@ -363,7 +383,10 @@ ai-job-search-agent/
 │   ├── dedup.py                # Rolling 30-day seen-jobs log
 │   └── logger.py               # UTF-8 structured logging
 │
-├── input/                      # Not committed — restored from secrets at runtime
+├── scripts/
+│   └── set_schedule.py         # Converts RUN_TIMES_ET → UTC crons, updates workflow
+│
+├── input/                      # Not committed — fetched from ai-job-search-resume at runtime
 │   ├── resume.pdf
 │   └── resume.tex
 │
@@ -379,6 +402,11 @@ ai-job-search-agent/
 ├── requirements.txt
 ├── .env.example                # Copy to .env for local runs
 └── .gitignore
+
+ai-job-search-resume/         ← PRIVATE repo (separate)
+├── resume.pdf                  # Your current resume PDF
+├── resume.tex                  # Your Overleaf LaTeX source
+└── README.md
 ```
 
 ---
@@ -392,6 +420,8 @@ python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activat
 pip install -r requirements.txt
 cp .env.example .env
 # Fill in .env with your API keys
+
+# Download resume files from your private repo manually
 cp /path/to/resume.pdf input/resume.pdf
 cp /path/to/resume.tex input/resume.tex  # optional but recommended
 
