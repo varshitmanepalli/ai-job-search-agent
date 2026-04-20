@@ -311,8 +311,9 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
     # Step 2 (serialized): compile — acquire lock so only one compile hits
     # TeXLive.net at a time; all others wait their turn.
     # A 3-second cooldown after release prevents rate-limit rejections.
+    # NOTE: latex_compiler always sends the source as "main.tex" to TeXLive.net
+    # regardless of the local filename, so no main_filename argument is needed.
     import time as _time
-    main_filename = os.path.basename(tex_path)
     if compile_lock is not None:
         logger.debug(f"Waiting for compile slot: {job.company}")
         compile_lock.acquire()
@@ -321,7 +322,6 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
             tex_source=modified_tex,
             output_path=output_path,
             aux_dir=aux_dir,
-            main_filename=main_filename,
             compiler=compiler,
         )
     finally:

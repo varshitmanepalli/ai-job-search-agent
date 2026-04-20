@@ -37,11 +37,18 @@ _TEXLIVE_URL = "https://texlive.net/cgi-bin/latexcgi"
 _COMPILER = os.getenv("LATEX_COMPILER", "pdflatex")
 
 
+# TeXLive.net requires a consistent, known entry-point filename.
+# We always send the source as "main.tex" regardless of what the file is
+# called locally (resume.tex, cv.tex, etc.).  This matches the convention
+# used by Overleaf and avoids "no main document" errors.
+_MAIN_TEX_FILENAME = "main.tex"
+
+
 def compile_tex_to_pdf(
     tex_source: str,
     output_path: str,
     aux_dir: Optional[str] = None,
-    main_filename: str = "document.tex",
+    main_filename: str = _MAIN_TEX_FILENAME,   # always overridden to main.tex below
     compiler: Optional[str] = None,
     retries: int = 2,
 ) -> str:
@@ -54,7 +61,9 @@ def compile_tex_to_pdf(
         aux_dir:       Optional directory containing auxiliary files (.cls, .sty,
                        images, etc.). Each file in the directory is sent as a
                        separate field in the multipart form.
-        main_filename: Filename for the main .tex entry point (default: document.tex).
+        main_filename: Ignored — always compiled as "main.tex" so TeXLive.net
+                       reliably identifies the entry point regardless of the
+                       original filename (resume.tex, cv.tex, etc.).
         compiler:      "pdflatex" | "xelatex" | "lualatex". Defaults to env var.
         retries:       Number of retry attempts on transient network errors.
 
@@ -64,6 +73,8 @@ def compile_tex_to_pdf(
     Raises:
         RuntimeError if compilation fails after all retries.
     """
+    # Always use main.tex — never the caller-supplied name
+    main_filename = _MAIN_TEX_FILENAME
     compiler = compiler or _COMPILER
     out_name = Path(output_path).name
     logger.info(f"Compiling LaTeX ({compiler}) via TeXLive.net → {out_name}")

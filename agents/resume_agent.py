@@ -15,6 +15,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List, Optional
 
+import re
+
 import pdfplumber
 
 from config.settings import config
@@ -84,6 +86,68 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 def _pdf_hash(pdf_path: str) -> str:
     with open(pdf_path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
+
+
+def extract_text_from_tex(tex_path: str) -> str:
+    """
+    Extract human-readable plain text from a .tex resume source.
+
+    Strips LaTeX commands while preserving all textual content: bullet points,
+    section headers, dates, company names, tech stacks, etc.  This is used
+    alongside PDF extraction so the LLM profile builder sees 100% of the
+    resume content even when pdfplumber mis-orders multi-column layouts.
+    """
+    with open(tex_path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    # Work only inside \begin{document}...\end{document}
+    doc_match = re.search(r"\\begin\{document\}(.*?)\\end\{document\}", src, re.DOTALL)
+    body = doc_match.group(1) if doc_match else src
+
+    # Strip comments
+    body = re.sub(r"%.*$", "", body, flags=re.MULTILINE)
+
+    # Expand common inline wrappers first (order matters)
+    body = re.sub(r"\\hrefWithoutArrow\{[^}]*\}\{([^}]*)\}", r"\1", body)
+    body = re.sub(r"\\href\{[^}]*\}\{([^}]*)\}", r"\1", body)
+    body = re.sub(r"\\textbf\{([^}]*)\}",  r"\1", body)
+    body = re.sub(r"\\textit\{([^}]*)\}",  r"\1", body)
+    body = re.sub(r"\\emph\{([^}]*)\}",    r"\1", body)
+    body = re.sub(r"\\underline\{([^}]*)\}", r"\1", body)
+
+    # Section headers → readable labels
+    body = re.sub(r"\\section\{([^}]+)\}", r"\n\n== \1 ==", body)
+
+    # \begin{twocolentry}{DATE} → expose the date on its own line
+    body = re.sub(r"\\begin\{twocolentry\}\{([^}]*)\}", r"\1", body)
+
+    # Remove all remaining \begin{...} / \end{...} environment markers
+    body = re.sub(r"\\(?:begin|end)\{[^}]*\}", "", body)
+
+    # Remove remaining LaTeX commands (keep their arguments when single-braced)
+    body = re.sub(r"\\[a-zA-Z@]+\*?\{([^}]*)\}", r"\1", body)
+    body = re.sub(r"\\[a-zA-Z@]+\*?", " ", body)
+
+    # \item → bullet dash
+    body = body.replace(r"\item", "- ")
+
+    # Clean up LaTeX special chars
+    body = body.replace(r"~", " ")
+    body = body.replace(r"\$", "$")
+    body = body.replace(r"\&", "&")
+    body = body.replace(r"\%", "%")
+    body = body.replace(r"\_", "_")
+    body = body.replace(r"\#", "#")
+
+    # Remove leftover braces and backslashes
+    body = re.sub(r"[{}]", "", body)
+    body = re.sub(r"\\+", " ", body)
+
+    # Collapse whitespace while preserving paragraph breaks
+    body = re.sub(r"[ \t]+", " ", body)
+    body = re.sub(r"\n{3,}", "\n\n", body)
+
+    return body.strip()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -158,16 +222,36 @@ def _parse_profile_with_llm(raw_text: str) -> dict:
 
 def load_resume_profile(force_refresh: bool = False) -> ResumeProfile:
     """
-    Load the resume profile from cache if the PDF hasn't changed,
-    otherwise re-parse and rebuild the profile.
+    Load the resume profile from cache if neither the PDF nor the .tex source
+    has changed since last parse, otherwise re-parse and rebuild the profile.
+
+    Hybrid extraction strategy
+    --------------------------
+    When input/resume.tex is present alongside the PDF, both sources are
+    combined before the LLM parse:
+
+      • PDF text (pdfplumber)  — accurate contact info and quantified bullets,
+        but may mis-order text in multi-column RenderCV layouts.
+      • LaTeX source text      — perfectly ordered, captures every bullet and
+        skill even if pdfplumber drops them from two-column sections.
+
+    Merging both sources gives the LLM the richest possible input so no
+    experience, project, or skill detail is missed during extraction.
     """
     pdf_path = config.paths.resume_pdf
+    tex_path = getattr(config.paths, "resume_tex", "input/resume.tex")
     cache_path = config.paths.resume_profile_cache
 
     if not os.path.exists(pdf_path):
         raise FileNotFoundError(f"Resume PDF not found at: {pdf_path}")
 
-    current_hash = _pdf_hash(pdf_path)
+    # Build a composite hash so the cache is invalidated when either file changes
+    pdf_hash = _pdf_hash(pdf_path)
+    tex_hash = ""
+    if os.path.exists(tex_path):
+        with open(tex_path, "rb") as f:
+            tex_hash = hashlib.md5(f.read()).hexdigest()
+    current_hash = hashlib.md5((pdf_hash + tex_hash).encode()).hexdigest()
 
     # Check cache
     if not force_refresh and os.path.exists(cache_path):
@@ -177,9 +261,35 @@ def load_resume_profile(force_refresh: bool = False) -> ResumeProfile:
             logger.info("Resume profile loaded from cache.")
             return _dict_to_profile(cached)
 
+    # ── PDF extraction ────────────────────────────────────────────────────────
     logger.info("Parsing resume PDF...")
-    raw_text = extract_text_from_pdf(pdf_path)
-    logger.info(f"Extracted {len(raw_text)} characters from PDF.")
+    pdf_text = extract_text_from_pdf(pdf_path)
+    logger.info(f"PDF extraction: {len(pdf_text):,} characters")
+
+    # ── LaTeX extraction (hybrid) ─────────────────────────────────────────────
+    tex_text = ""
+    if os.path.exists(tex_path):
+        logger.info("LaTeX source found — combining with PDF for hybrid extraction")
+        try:
+            tex_text = extract_text_from_tex(tex_path)
+            logger.info(f"LaTeX extraction: {len(tex_text):,} characters")
+        except Exception as e:
+            logger.warning(f"LaTeX text extraction failed (using PDF only): {e}")
+
+    # ── Merge ─────────────────────────────────────────────────────────────────
+    if tex_text:
+        raw_text = (
+            "=== SOURCE: PDF (layout-aware extraction) ===\n"
+            + pdf_text
+            + "\n\n=== SOURCE: LaTeX source (complete, ordered) ===\n"
+            + tex_text
+        )
+        logger.info(
+            f"Hybrid extraction total: {len(raw_text):,} characters "
+            f"(PDF: {len(pdf_text):,} + LaTeX: {len(tex_text):,})"
+        )
+    else:
+        raw_text = pdf_text
 
     data = _parse_profile_with_llm(raw_text)
     data["raw_text"] = raw_text
