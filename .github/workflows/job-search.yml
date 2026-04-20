@@ -1,18 +1,49 @@
 name: AI Job Search Agent
 
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │                      CHANGE RUN TIMES HERE                              │
+# │                                                                         │
+# │  GitHub Actions schedules use UTC. Use the table below to convert.      │
+# │                                                                         │
+# │  ET → UTC conversion:                                                   │
+# │    Winter (Nov–Mar, EST = UTC-5):  ET + 5h = UTC                        │
+# │    Summer (Mar–Nov, EDT = UTC-4):  ET + 4h = UTC                        │
+# │                                                                         │
+# │  Common ET times and their UTC cron equivalents:                        │
+# │                                                                         │
+# │   Desired ET time  │  Winter UTC cron  │  Summer UTC cron               │
+# │  ─────────────────────────────────────────────────────────              │
+# │   6:00 AM ET       │  0 11 * * *       │  0 10 * * *                    │
+# │   7:00 AM ET       │  0 12 * * *       │  0 11 * * *                    │
+# │   8:00 AM ET       │  0 13 * * *       │  0 12 * * *                    │
+# │   9:00 AM ET       │  0 14 * * *       │  0 13 * * *                    │
+# │   12:00 PM ET      │  0 17 * * *       │  0 16 * * *                    │
+# │   6:00 PM ET       │  0 23 * * *       │  0 22 * * *                    │
+# │   7:00 PM ET       │  0 0 * * *        │  0 23 * * *                    │
+# │   8:00 PM ET       │  0 1 * * *        │  0 0 * * *                     │
+# │                                                                         │
+# │  TO CHANGE TIMES: edit the two cron lines in the `schedule:` block      │
+# │  below. Replace with any rows from the table above.                     │
+# │                                                                         │
+# │  Current schedule: 6:00 AM ET  and  6:00 PM ET (winter/EST)            │
+# └─────────────────────────────────────────────────────────────────────────┘
+
 on:
-  # 6:00 AM Eastern = 11:00 AM UTC (EST) or 10:00 AM UTC (EDT)
-  # Using 11:00 UTC covers EST; adjust to 10:00 for DST (summer)
   schedule:
-    - cron: '0 11 * * *'   # ~6 AM ET (winter / EST)
-    - cron: '0 23 * * *'   # ~6 PM ET (winter / EST)
-  workflow_dispatch:        # Manual trigger from GitHub UI
+    - cron: '0 11 * * *'   # 6:00 AM ET (winter EST) — change this line
+    - cron: '0 23 * * *'   # 6:00 PM ET (winter EST) — change this line
+  workflow_dispatch:        # Also runnable manually from GitHub Actions UI
     inputs:
       dry_run:
-        description: 'Dry run (skip email)'
+        description: 'Dry run — find jobs and tailor resumes but skip sending email'
         required: false
         default: 'false'
         type: boolean
+      since_hours:
+        description: 'How many hours back to look for jobs (default 12)'
+        required: false
+        default: '12'
+        type: string
 
 jobs:
   run-agent:
@@ -64,7 +95,7 @@ jobs:
             echo "$RESUME_TEX_BASE64" | base64 --decode > input/resume.tex
             echo "Resume LaTeX source restored ($(wc -l < input/resume.tex) lines)"
           else
-            echo "RESUME_TEX_BASE64 not set — skipping LaTeX source restore (ReportLab fallback will be used)"
+            echo "RESUME_TEX_BASE64 not set — skipping LaTeX restore (ReportLab fallback will be used)"
           fi
 
       - name: Run Job Search Agent
@@ -79,11 +110,14 @@ jobs:
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
           USE_SENDGRID: ${{ secrets.USE_SENDGRID }}
         run: |
+          ARGS=""
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
-            python main.py --dry-run
-          else
-            python main.py
+            ARGS="$ARGS --dry-run"
           fi
+          if [ -n "${{ github.event.inputs.since_hours }}" ]; then
+            ARGS="$ARGS --since-hours ${{ github.event.inputs.since_hours }}"
+          fi
+          python main.py $ARGS
 
       - name: Upload report artifacts
         if: always()
