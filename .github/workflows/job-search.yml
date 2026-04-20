@@ -10,8 +10,7 @@ name: AI Job Search Agent
 on:
 # <<< SCHEDULE_START — do not edit this line >>>
   schedule:
-    - cron: '0 10 * * *'   # 6:00 AM EDT
-    - cron: '0 22 * * *'   # 6:00 PM EDT
+    - cron: '25 2 * * *'   # 10:25 PM EDT
 # <<< SCHEDULE_END   — do not edit this line >>>
   workflow_dispatch:        # Also runnable manually from GitHub Actions UI
     inputs:
