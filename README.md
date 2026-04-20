@@ -72,35 +72,42 @@ git push -u origin master
 
 ---
 
-### Step 2 — Encode your resume files
+### Step 2 — Upload your resume files
 
-The resume files are not committed to the repo (they're private). Instead they're stored as GitHub Secrets and decoded at runtime.
+Resume files are stored in a dedicated **`resume-assets` branch** — a separate, isolated branch with no code, just your PDF and `.tex` file. This avoids GitHub Secrets size limits entirely and makes updating your resume as simple as a `git push`.
 
-**On macOS / Linux — run in the repo directory:**
+**One-time setup — clone the branch and add your files:**
 
 ```bash
-# Encode resume PDF
-base64 -i input/resume.pdf | tr -d '\n'
-# → copy the output into secret: RESUME_PDF_BASE64
+# Clone only the resume-assets branch into a separate folder
+git clone --branch resume-assets --single-branch \
+  https://github.com/varshitmanepalli/ai-job-search-agent.git resume-assets
+cd resume-assets
 
-# Encode resume LaTeX source (from Overleaf)
-base64 -i input/resume.tex | tr -d '\n'
-# → copy the output into secret: RESUME_TEX_BASE64
+# Copy your resume files in
+cp /path/to/your/resume.pdf resume.pdf
+cp /path/to/your/resume.tex resume.tex   # from Overleaf → Menu → Source → Download
+
+# Push to GitHub
+git add resume.pdf resume.tex
+git commit -m "Add resume files"
+git push origin resume-assets
 ```
 
-**On Windows (PowerShell):**
+That's it. The workflow automatically checks out this branch and copies the files into `input/` before each run.
 
-```powershell
-# Encode resume PDF
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("input\resume.pdf"))
-# → copy the output into secret: RESUME_PDF_BASE64
+**Updating your resume later** — just push new files to the same branch:
 
-# Encode resume LaTeX source
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("input\resume.tex"))
-# → copy the output into secret: RESUME_TEX_BASE64
+```bash
+cd resume-assets                         # the folder you cloned above
+cp /path/to/updated-resume.pdf resume.pdf
+cp /path/to/updated-resume.tex resume.tex
+git add resume.pdf resume.tex
+git commit -m "Update resume"
+git push origin resume-assets
 ```
 
-> **Tip:** If you update your Overleaf resume, re-run the encode commands and update the secrets. The profile cache will automatically rebuild on the next run.
+The next scheduled run picks them up automatically and rebuilds the profile cache.
 
 ---
 
@@ -109,7 +116,7 @@ base64 -i input/resume.tex | tr -d '\n'
 Go to your repo on GitHub:
 **Settings → Secrets and variables → Actions → New repository secret**
 
-Add each secret below. All are required unless marked optional.
+Resume files are stored in the `resume-assets` branch — **not** as secrets. Only API keys go here.
 
 | Secret | Value | Where to get it |
 |--------|-------|-----------------|
@@ -119,8 +126,6 @@ Add each secret below. All are required unless marked optional.
 | `RECIPIENT_EMAIL` | Email to receive reports | Can be the same as `SENDER_EMAIL` |
 | `ADZUNA_APP_ID` | e.g. `0eb6bb03` | [developer.adzuna.com](https://developer.adzuna.com) — free tier |
 | `ADZUNA_APP_KEY` | e.g. `266e2b6b...` | Same Adzuna dashboard |
-| `RESUME_PDF_BASE64` | Output from Step 2 | Encoded `resume.pdf` |
-| `RESUME_TEX_BASE64` | Output from Step 2 | Encoded `resume.tex` — enables LaTeX pipeline |
 | `HUNTER_API_KEY` | *(optional)* | [hunter.io](https://hunter.io) — 25 free searches/month for hiring manager lookup |
 
 > **Gmail App Password setup:**
@@ -185,8 +190,8 @@ Commit and push the change — GitHub picks it up immediately, no other steps ne
 | Python setup | Installs 3.11 with pip cache |
 | Restore resume cache | Avoids re-parsing if PDF unchanged |
 | Restore seen-jobs log | Prevents duplicate job alerts across runs |
-| Decode resume PDF | Writes `input/resume.pdf` from `RESUME_PDF_BASE64` secret |
-| Decode resume LaTeX | Writes `input/resume.tex` from `RESUME_TEX_BASE64` secret (skipped if secret not set) |
+| Checkout resume-assets branch | Checks out your private `resume-assets` branch into a staging folder |
+| Copy resume files | Copies `resume.pdf` (required) and `resume.tex` (optional) into `input/` |
 | Run agent | Full pipeline: discover → score → tailor → email |
 | Upload artifacts | Saves HTML report + agent.log for 7 days |
 | Save seen-jobs log | Persists dedup state so next run doesn't repeat jobs |
@@ -253,10 +258,18 @@ llm.model = "gpt-4o"        # Better; recommended for tailoring
 
 When you update your resume on Overleaf:
 
-1. Download the PDF (`resume.pdf`) and the `.tex` source
-2. Re-encode both files (Step 2 commands above)
-3. Update the `RESUME_PDF_BASE64` and `RESUME_TEX_BASE64` secrets in GitHub
-4. The next run automatically re-parses and rebuilds the profile cache
+1. Download the PDF (`resume.pdf`) and the `.tex` source from Overleaf
+2. Go to the `resume-assets` folder you cloned in Step 2 of the setup
+3. Copy the new files in and push:
+   ```bash
+   cd resume-assets
+   cp /path/to/updated-resume.pdf resume.pdf
+   cp /path/to/updated-resume.tex resume.tex
+   git add resume.pdf resume.tex
+   git commit -m "Update resume"
+   git push origin resume-assets
+   ```
+4. The next run automatically uses the new files and rebuilds the profile cache
 
 ---
 
@@ -277,7 +290,7 @@ Tailored resume PDFs are attached to the email, one per job.
 
 ## LaTeX Resume Integration (Overleaf)
 
-When `RESUME_TEX_BASE64` is set, the agent uses your exact Overleaf LaTeX source instead of rebuilding a generic layout. Your fonts, column structure, custom commands, and spacing are preserved exactly.
+When `resume.tex` is present in the `resume-assets` branch, the agent uses your exact Overleaf LaTeX source instead of rebuilding a generic layout. Your fonts, column structure, custom commands, and spacing are preserved exactly.
 
 ### How tailoring works
 
