@@ -58,6 +58,7 @@ class JobPosting:
     hiring_manager_name: str = ""
     hiring_manager_email: str = ""
     cold_email_draft: str = ""
+    resume_changes: List[str] = field(default_factory=list)  # bullet descriptions of resume edits made for this job
 
 
 # ──────────────────────────────────────────────────────────────────────────────

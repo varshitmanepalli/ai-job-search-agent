@@ -268,7 +268,7 @@ def _render_resume_pdf(data: dict, output_path: str):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
-                      compile_lock=None) -> str:
+                      compile_lock=None) -> str:  # also mutates job.resume_changes
     """
     Tailor the resume using the LaTeX source file:
       1. LLM surgically edits content-only nodes in the .tex (parallel-safe).
@@ -296,12 +296,14 @@ def _tailor_via_latex(profile: ResumeProfile, job: JobPosting, output_path: str,
     aux_dir = tex_dir if aux_files else None
 
     # Step 1 (parallel-safe): LLM rewrites content nodes in .tex
-    modified_tex = tailor_tex_for_job(
+    modified_tex, resume_changes = tailor_tex_for_job(
         tex_source=original_tex,
         job_title=job.title,
         job_company=job.company,
         job_description=job.description,
     )
+    # Store changes on the job so the email reporter can display them
+    job.resume_changes = resume_changes
 
     # Save the modified .tex for debugging regardless of compile outcome
     tex_out = output_path.replace(".pdf", ".tex")

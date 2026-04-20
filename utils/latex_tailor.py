@@ -222,12 +222,13 @@ Return JSON array of replacements.
 # Step 3: Apply replacements to the raw .tex source
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _apply_replacements(tex: str, replacements: List[Dict[str, str]]) -> Tuple[str, int]:
+def _apply_replacements(tex: str, replacements: List[Dict[str, str]]) -> Tuple[str, int, List[str]]:
     """
     Apply each {old, new} replacement to the tex source.
-    Returns (modified_tex, number_of_replacements_applied).
+    Returns (modified_tex, number_of_replacements_applied, human_readable_changes).
     """
     applied = 0
+    changes: List[str] = []
     for r in replacements:
         old = r.get("old", "").strip()
         new = r.get("new", "").strip()
@@ -236,10 +237,14 @@ def _apply_replacements(tex: str, replacements: List[Dict[str, str]]) -> Tuple[s
         if old in tex:
             tex = tex.replace(old, new, 1)
             applied += 1
-            logger.debug(f"  Replaced: '{old[:60]}...' → '{new[:60]}...'")
+            # Build a short human-readable summary of this change
+            old_preview = old[:60] + ("..." if len(old) > 60 else "")
+            new_preview = new[:60] + ("..." if len(new) > 60 else "")
+            changes.append(f"{old_preview} → {new_preview}")
+            logger.debug(f"  Replaced: '{old_preview}' → '{new_preview}'")
         else:
             logger.debug(f"  Skipped (not found): '{old[:60]}'")
-    return tex, applied
+    return tex, applied, changes
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -251,7 +256,7 @@ def tailor_tex_for_job(
     job_title: str,
     job_company: str,
     job_description: str,
-) -> str:
+) -> Tuple[str, List[str]]:
     """
     Return a modified version of tex_source that is better aligned with the
     given job description, without altering any LaTeX formatting commands.
@@ -263,7 +268,8 @@ def tailor_tex_for_job(
         job_description: Full JD text
 
     Returns:
-        Modified .tex source string.
+        Tuple of (modified_tex, changes) where changes is a list of
+        human-readable bullet strings describing what was edited.
     """
     logger.info(f"Tailoring .tex for: {job_title} @ {job_company}")
 
@@ -281,7 +287,7 @@ def tailor_tex_for_job(
     logger.info(f"LLM returned {len(replacements)} replacement candidates")
 
     # Apply to raw .tex
-    modified_tex, applied = _apply_replacements(tex_source, replacements)
+    modified_tex, applied, changes = _apply_replacements(tex_source, replacements)
     logger.info(f"Applied {applied}/{len(replacements)} replacements to .tex source")
 
-    return modified_tex
+    return modified_tex, changes

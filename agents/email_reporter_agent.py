@@ -86,6 +86,14 @@ EMAIL_TEMPLATE = """
   .btn-secondary {{ background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }}
   .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #888; }}
   .divider {{ height: 1px; background: #e2e8f0; margin: 8px 0; }}
+  .changes-list {{ list-style: none; padding: 0; margin: 0; }}
+  .changes-list li {{ font-size: 12px; color: #334155; padding: 3px 0 3px 18px;
+                      position: relative; line-height: 1.45; }}
+  .changes-list li::before {{ content: '✎'; position: absolute; left: 0;
+                               color: #2563eb; font-size: 11px; }}
+  .changes-box {{ background: #f0f7ff; border: 1px solid #bfdbfe;
+                  border-radius: 8px; padding: 10px 14px; margin-top: 10px; }}
+  .changes-box .section-title {{ color: #1d4ed8; }}
 </style>
 </head>
 <body>
@@ -133,6 +141,8 @@ JOB_CARD_TEMPLATE = """
 
   {cold_email_section}
 
+  {resume_changes_section}
+
   <div class="actions">
     <a href="{apply_url}" class="btn btn-primary" target="_blank">Apply Now</a>
     {resume_link}
@@ -171,6 +181,22 @@ def _render_job_card(job: JobPosting) -> str:
 
     resume_link = ""  # Resumes are attached as PDFs
 
+    # Resume changes section — only shown when the LaTeX pipeline ran
+    resume_changes_section = ""
+    changes = getattr(job, "resume_changes", [])
+    if changes:
+        items_html = "\n".join(
+            f'<li>{c.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</li>'
+            for c in changes
+        )
+        resume_changes_section = f"""
+    <div class="changes-box">
+      <div class="section-title">Resume Edits for This Role ({len(changes)} changes)</div>
+      <ul class="changes-list" style="margin-top:6px;">
+        {items_html}
+      </ul>
+    </div>"""
+
     return JOB_CARD_TEMPLATE.format(
         title=job.title,
         company=job.company,
@@ -185,6 +211,7 @@ def _render_job_card(job: JobPosting) -> str:
         manager_row=manager_row,
         manager_email_row=manager_email_row,
         cold_email_section=cold_email_section,
+        resume_changes_section=resume_changes_section,
         apply_url=job.apply_url,
         resume_link=resume_link,
     )
