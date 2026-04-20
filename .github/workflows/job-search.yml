@@ -25,6 +25,11 @@ on:
         required: false
         default: '12'
         type: string
+      clear_history:
+        description: 'Clear seen-jobs history so all jobs appear fresh'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   run-agent:
@@ -35,10 +40,11 @@ jobs:
       - name: Checkout main code (master branch)
         uses: actions/checkout@v4
 
-      - name: Checkout resume files (resume-assets branch)
+      - name: Checkout resume files (private resume repo)
         uses: actions/checkout@v4
         with:
-          ref: resume-assets
+          repository: varshitmanepalli/ai-job-search-resume
+          token: ${{ secrets.RESUME_REPO_PAT }}
           path: _resume_assets   # temporary staging folder (not input/)
 
       - name: Copy resume files into input/
@@ -48,7 +54,7 @@ jobs:
             cp _resume_assets/resume.pdf input/resume.pdf
             echo "resume.pdf copied ($(du -sh input/resume.pdf | cut -f1))"
           else
-            echo "ERROR: resume.pdf not found in resume-assets branch"
+            echo "ERROR: resume.pdf not found in ai-job-search-resume repo"
             exit 1
           fi
           if [ -f "_resume_assets/resume.tex" ]; then
@@ -103,6 +109,9 @@ jobs:
           fi
           if [ -n "${{ github.event.inputs.since_hours }}" ]; then
             ARGS="$ARGS --since-hours ${{ github.event.inputs.since_hours }}"
+          fi
+          if [ "${{ github.event.inputs.clear_history }}" = "true" ]; then
+            ARGS="$ARGS --clear-history"
           fi
           python main.py $ARGS
 
