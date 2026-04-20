@@ -19,7 +19,7 @@ All secrets are loaded from environment variables or a .env file.
 # ║    python scripts/set_schedule.py                                    ║
 # ║  Then commit and push the updated workflow file.                     ║
 # ╚══════════════════════════════════════════════════════════════════════╝
-RUN_TIMES_ET = ["06:00", "18:00"]
+RUN_TIMES_ET = ["22:25"]
 
 import os
 from dataclasses import dataclass, field
