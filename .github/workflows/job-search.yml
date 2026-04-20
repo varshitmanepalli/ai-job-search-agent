@@ -24,6 +24,11 @@ on:
         required: false
         default: '12'
         type: string
+      clear_history:
+        description: 'Clear seen-jobs history so all jobs appear fresh'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   run-agent:
@@ -103,6 +108,9 @@ jobs:
           fi
           if [ -n "${{ github.event.inputs.since_hours }}" ]; then
             ARGS="$ARGS --since-hours ${{ github.event.inputs.since_hours }}"
+          fi
+          if [ "${{ github.event.inputs.clear_history }}" = "true" ]; then
+            ARGS="$ARGS --clear-history"
           fi
           python main.py $ARGS
 
