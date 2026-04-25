@@ -113,6 +113,8 @@ def _title_matches(title: str) -> bool:
         "deep learning", "nlp", "llm", "large language", "data scientist",
         "applied scientist", "research engineer", "founding engineer",
         "computer vision", "reinforcement learning", "generative ai",
+        "ai researcher", "ml researcher", "ai infrastructure", "inference engineer",
+        "platform engineer", "mlops", "ml platform", "ai platform",
     ]
     return any(k in title_lower for k in keywords)
 
@@ -229,10 +231,15 @@ def _fetch_yc() -> List[JobPosting]:
 
 # Companies using Greenhouse — extend this list freely
 GREENHOUSE_COMPANIES = [
-    "openai", "anthropic", "cohere", "mistralai", "huggingface",
-    "scale", "weights-biases", "modal", "together", "anyscale",
-    "prefect", "langchain", "weaviate", "pinecone", "chroma",
-    "nvidia", "databricks", "snowflake",
+    "anthropic",       # 453 jobs
+    "databricks",      # 839 jobs
+    "scaleai",         # 172 jobs
+    "coreweave",       # 247 jobs
+    "xai",             # 231 jobs (xAI / Elon Musk)
+    "stabilityai",     # 13 jobs
+    "deepmind",        # 83 jobs
+    "tenstorrent",     # 116 jobs
+    "imbue",           # active
 ]
 
 def _fetch_greenhouse_company(company_slug: str) -> List[JobPosting]:
@@ -291,8 +298,8 @@ def _fetch_greenhouse_all() -> List[JobPosting]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 LEVER_COMPANIES = [
-    "openai", "scale-ai", "perplexity-ai", "together-ai",
-    "replit", "notion", "linear", "figma",
+    "mistral",         # 156 jobs
+    "anyscale",        # active
 ]
 
 def _fetch_lever_company(company_slug: str) -> List[JobPosting]:

@@ -57,7 +57,7 @@ class JobSearchConfig:
         "San Francisco, CA",
         "Seattle, WA",
     ])
-    max_hours_old: int = 12          # Only fetch jobs posted within the last N hours
+    max_hours_old: int = 72   # Fetch jobs posted in the last 72 hours by default
     max_jobs_per_run: int = 25       # Cap to avoid LLM cost explosion
     min_relevance_score: float = 0.65  # 0.0–1.0; only jobs above this are included
 
